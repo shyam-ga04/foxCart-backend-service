@@ -1,2 +1,3 @@
 .vmodules
 .env
+__pycache__

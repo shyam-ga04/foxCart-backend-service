@@ -106,7 +106,7 @@ class Product(Base):
     stock = Column(Integer, default=0)
     image_url = Column(String(255), nullable=True)
     active = Column(Boolean, default=True)
-    metadata = Column(JSON, nullable=True)  # custom attributes
+    product_metadata = Column(JSON, nullable=True)  # custom attributes
     vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"))
     vendor = relationship("Vendor", back_populates="products")
     category_id = Column(Integer, ForeignKey("product_categories.id", ondelete="SET NULL"))
