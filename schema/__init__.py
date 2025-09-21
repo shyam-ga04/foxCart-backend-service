@@ -25,12 +25,21 @@ class OrderStatus(enum.Enum):
 class AppUser(Base):
     __tablename__ = "app_users"
 
-    id = Column(String, primary_key=True)  # UUID from Supabase auth.users
+    id = Column(String, primary_key=True)  # UUID from auth.users
     role = Column(Enum(UserRole), default=UserRole.CUSTOMER)
-    vendor = relationship("Vendor", back_populates="owner", uselist=False)
-    orders = relationship("Order", back_populates="customer")
+    full_name = Column(String(150), nullable=True)
+    email = Column(String(255), unique=True, nullable=True)
+    profile_pic = Column(String(255), nullable=True)
+    fcm_token = Column(String(255), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    vendor = relationship("Vendor", back_populates="owner", uselist=False)
+    orders = relationship("Order", back_populates="customer")
+    contacts = relationship("ContactDetail", back_populates="user", cascade="all, delete-orphan")
+    locations = relationship("LocationDetail", back_populates="user", cascade="all, delete-orphan")
+
 
 
 # ---------- VENDOR SHOP TYPES ----------
@@ -66,19 +75,60 @@ class Vendor(Base):
     slug = Column(String(150), unique=True, nullable=False)
     logo = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
+    gst_number = Column(String(50), nullable=True)   # Tax ID
+    website = Column(String(255), nullable=True)
     active = Column(Boolean, default=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
     owner_id = Column(String, ForeignKey("app_users.id"), unique=True)
     owner = relationship("AppUser", back_populates="vendor")
 
     products = relationship("Product", back_populates="vendor")
     orders = relationship("Order", back_populates="vendor")
-    shop_types = relationship(
-        "ShopType",
-        secondary="vendor_shop_types",
-        back_populates="vendors"
-    )
+    shop_types = relationship("ShopType", secondary="vendor_shop_types", back_populates="vendors")
+
+    contacts = relationship("ContactDetail", back_populates="vendor", cascade="all, delete-orphan")
+    locations = relationship("LocationDetail", back_populates="vendor", cascade="all, delete-orphan")
+
+class ContactDetail(Base):
+    __tablename__ = "contact_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    contact_type = Column(String(50), nullable=False)   # phone, email, whatsapp, support
+    value = Column(String(255), nullable=False)
+    is_primary = Column(Boolean, default=False)
+
+    user_id = Column(String, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("AppUser", back_populates="contacts")
+    vendor = relationship("Vendor", back_populates="contacts")
+
+class LocationDetail(Base):
+    __tablename__ = "location_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    label = Column(String(100), nullable=True)        # e.g., "Home", "Work", "Branch 1"
+    address_line1 = Column(String(255), nullable=False)
+    address_line2 = Column(String(255), nullable=True)
+    city = Column(String(100), nullable=True)
+    state = Column(String(100), nullable=True)
+    country = Column(String(100), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+
+    user_id = Column(String, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("AppUser", back_populates="locations")
+    vendor = relationship("Vendor", back_populates="locations")
 
 # ---------- PRODUCT CATEGORIES (hierarchy supported) ----------
 class ProductCategory(Base):
