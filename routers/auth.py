@@ -17,6 +17,10 @@ class UserCredentials(BaseModel):
     role: Literal["customer", "vendor"] = "customer"
     shop_name: Optional[str] = None
     shop_types: Optional[list[str]] = None
+    
+class UserSignInCredentials(BaseModel):
+    email: str
+    password: str
 
 @router.post("/signup")
 async def signup(credentials: UserCredentials):
@@ -39,7 +43,7 @@ async def signup(credentials: UserCredentials):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/signin")
-async def signin(credentials: UserCredentials):
+async def signin(credentials: UserSignInCredentials):
     """Sign in an existing user."""
     try:
         user = supabase.auth.sign_in_with_password({
