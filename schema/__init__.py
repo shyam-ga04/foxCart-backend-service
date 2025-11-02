@@ -1,573 +1,464 @@
 from sqlalchemy import (
-   Boolean, Column, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Table, Text,event,DDL,text
+    Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text, text,event,DDL
 )
 from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
-import enum
-import uuid
 
 Base = declarative_base()
 
+# ---------- BASE MIXIN ----------
+class BaseMixin:
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, server_default=text("true"))
 
-# ---------- ENUMS ----------
-class UserRole(enum.Enum):
-    VENDOR = "vendor"
-    CUSTOMER = "customer"
-
-
-class OrderStatus(enum.Enum):
-    PENDING = "pending"
-    SHIPPED = "shipped"
-    OUT_FOR_DELIVERY = "out_for_delivery"
-    DELIVERED = "delivered"
-    CANCELLED = "cancelled"
-
-class GstRate(Base):
-    __tablename__ = "gst_rates"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=uuid.uuid4, index=True)
+# ---------- ENUM TABLES ----------
+class UserRoles(Base):
+    __tablename__ = "enum_user_roles"
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
+    name = Column(String(50), unique=True, nullable=False)  # e.g. "customer", "vendor", "delivery_boy", "admin"
     description = Column(String(255))
-    hsn_code = Column(String(10), unique=True, nullable=False)  # Ex: "8471" for laptops
-    rate = Column(Float, nullable=False)  # GST percentage (e.g., 18.0)
-
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
 
 
+class OrderStatuses(Base):
+    __tablename__ = "enum_order_status"
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
+    name = Column(String(50), unique=True, nullable=False)  # e.g. "pending", "preparing", "delivered"
+    description = Column(String(255))
+
+
+class RefundStatuses(Base):
+    __tablename__ = "enum_refund_status"
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
+    name = Column(String(50), unique=True, nullable=False)  # e.g. "pending", "approved", "rejected"
+    description = Column(String(255))
 
 # ---------- USERS ----------
-class Users(Base):
+class Users(Base, BaseMixin):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True,index=True)  # user-provided UUID (uid)
-    email = Column(String(255), unique=True)
-    fcm_token = Column(String(255))
+    email = Column(String(255), unique=True, index=True, nullable=False)
     full_name = Column(String(150))
     profile_pic = Column(String(255))
-    role = Column(Enum(UserRole), server_default=UserRole.CUSTOMER)
+    phone_number = Column(String(50))
+    role_id = Column(String(500), ForeignKey("enum_user_roles.name", ondelete="SET NULL"), index=True)
+    fcm_token = Column(String(255))
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-
-    # relationships
-    contacts = relationship("ContactDetail", back_populates="user", cascade="all, delete-orphan")
-    locations = relationship("LocationDetail", back_populates="user", cascade="all, delete-orphan")
-    cart = relationship("Cart", back_populates="user", cascade="all, delete-orphan")
-    orders = relationship("Orders", back_populates="customer")
-    vendor = relationship("Vendors", back_populates="owner", uselist=False)
-
-
-# ---------- VENDOR SHOP TYPES ----------
-class ShopType(Base):
-    __tablename__ = "shop_types"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    description = Column(Text)
-    name = Column(String(100), unique=True, nullable=False)
-
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-    
-    # relationships
-    vendors = relationship("Vendors", secondary="vendor_shop_types", back_populates="shop_types")
-
-
-
-vendor_shop_types = Table(
-    "vendor_shop_types",
-    Base.metadata,
-    Column("vendor_id", UUID(as_uuid=True), ForeignKey("vendors.id", ondelete="CASCADE"), primary_key=True),
-    Column("shop_type_id", UUID(as_uuid=True), ForeignKey("shop_types.id", ondelete="CASCADE"), primary_key=True),
-)
-
-
-# ---------- VENDORS ----------
-class Vendors(Base):
-    __tablename__ = "vendors"
-
-    id = Column(UUID(as_uuid=True), primary_key=True,server_default=text("gen_random_uuid()"))  # user-provided UUID (uid)
-    active = Column(Boolean, server_default=True) 
-    description = Column(Text)
+    # Vendor-specific
+    business_name = Column(String(255))
     gst_number = Column(String(50))
-    brand_logo = Column(String(255))
-    shop_name = Column(String(150), nullable=False)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, index=True)
-    slug = Column(String(150), unique=True, nullable=False)
-    website = Column(String(255))
+    license_number = Column(String(100))
+    vendor_description = Column(Text)
+    vendor_website = Column(Text)
+    shop_open_time = Column(String(20))
+    shop_close_time = Column(String(20))
+    avg_preparation_time = Column(Integer)
+    min_order_value = Column(Float, server_default=text("0.0"))
+    is_verified_vendor = Column(Boolean, server_default=text("false"))
+    rating = Column(Float, server_default=text("0.0"))
+    total_orders_completed = Column(Integer, server_default=text("0"))
+    vendor_status = Column(String(50), server_default="active")
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
+    # Relationships
+    role = relationship("UserRoles")
+    contacts_locations = relationship("UserContactLocation", back_populates="user", cascade="all, delete-orphan")
+    products = relationship("Products", back_populates="vendor", foreign_keys="Products.vendor_id")
+    orders = relationship("Orders", back_populates="customer", foreign_keys="Orders.customer_id")
+    deliveries = relationship("Orders", back_populates="delivery_agent", foreign_keys="Orders.delivery_agent_id")
+    delivery_assignments = relationship("DeliveryAssignment", back_populates="delivery_boy", foreign_keys="DeliveryAssignment.delivery_boy_id")
+    vendor_assignments = relationship("DeliveryAssignment", back_populates="vendor", foreign_keys="DeliveryAssignment.vendor_id")
 
-    # relationships
-    contacts = relationship("ContactDetail", back_populates="vendor", cascade="all, delete-orphan")
-    locations = relationship("LocationDetail", back_populates="vendor", cascade="all, delete-orphan")
-    orders = relationship("Orders", back_populates="vendor")
-    owner = relationship("Users", back_populates="vendor")
-    products = relationship("Products", back_populates="vendor")
-    shop_types = relationship("ShopType", secondary="vendor_shop_types", back_populates="vendors")
+# ---------- CONTACT + LOCATION ----------
+class UserContactLocation(Base, BaseMixin):
+    __tablename__ = "user_contact_locations"
 
-
-# ---------- CONTACT DETAILS ----------
-class ContactDetail(Base):
-    __tablename__ = "contact_details"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    contact_type = Column(String(50), nullable=False)
-    is_primary = Column(Boolean, server_default=False)
-    phone_number = Column(String(255), nullable=False)
-
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id", ondelete="CASCADE"), index=True)
-
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-        
-    # relationships
-    user = relationship("Users", back_populates="contacts")
-    vendor = relationship("Vendors", back_populates="contacts")
-
-
-# ---------- LOCATION DETAILS ----------
-class LocationDetail(Base):
-    __tablename__ = "location_details"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    address_line1 = Column(String(255), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(String(100))
+    is_default = Column(Boolean, server_default=text("false"))
+    phone_number = Column(String(50))
+    address_line1 = Column(String(255))
     address_line2 = Column(String(255))
     city = Column(String(100))
+    state = Column(String(100))
+    postal_code = Column(String(20))
     country = Column(String(100))
-    label = Column(String(100))
     latitude = Column(Float)
     longitude = Column(Float)
-    postal_code = Column(String(20))
-    state = Column(String(100))
 
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id", ondelete="CASCADE"), index=True)
+    user = relationship("Users", back_populates="contacts_locations")
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
+# ---------- GST RATES ----------
+class GstRate(Base, BaseMixin):
+    __tablename__ = "gst_rates"
 
-    # relationships
-    user = relationship("Users", back_populates="locations")
-    vendor = relationship("Vendors", back_populates="locations")
-    
-# ---------- SHOPPING CARTS ----------
-class Cart(Base):
-    __tablename__ = "carts"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-
-    # Relationships
-    items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
-    user = relationship("Users", back_populates="carts")
-
-# ---------- CART ITEMS ----------
-class CartItem(Base):
-    __tablename__ = "cart_items"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
-    quantity = Column(Integer, nullable=False, server_default=1)
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-
-    # Relationships
-    cart = relationship("Cart", back_populates="items")
-    product = relationship("Products")
-
+    description = Column(String(255))
+    hsn_code = Column(String(10), unique=True, nullable=False)
+    rate = Column(Float, nullable=False)
 
 # ---------- PRODUCT CATEGORIES ----------
-class ProductCategory(Base):
+class ProductCategory(Base, BaseMixin):
     __tablename__ = "product_categories"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    description = Column(Text)
     name = Column(String(100), unique=True, nullable=False)
+    description = Column(Text)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("product_categories.id"), nullable=True)
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-    
-    # relationships
-    parent = relationship("ProductCategory", remote_side=[id], back_populates="subcategories")
+    parent = relationship("ProductCategory", remote_side="ProductCategory.id", back_populates="subcategories")
     subcategories = relationship("ProductCategory", back_populates="parent")
     products = relationship("Products", back_populates="category")
 
-
 # ---------- PRODUCTS ----------
-class Products(Base):
+class Products(Base, BaseMixin):
     __tablename__ = "products"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    active = Column(Boolean, server_default=True)
-    base_price = Column(Float, nullable=False)
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     category_id = Column(UUID(as_uuid=True), ForeignKey("product_categories.id", ondelete="SET NULL"), index=True)
-    description = Column(Text)
     gst_rate_id = Column(UUID(as_uuid=True), ForeignKey("gst_rates.id"), nullable=False)
+
+    name = Column(String(200), nullable=False, index=True)
+    description = Column(Text)
     image_url = Column(String(255))
-    name = Column(String(200), nullable=False)
+    base_price = Column(Float, nullable=False)
+    stock = Column(Integer, server_default=text("0"))
     product_metadata = Column(JSON)
-    stock = Column(Integer, server_default=0)
-    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id", ondelete="CASCADE"), index=True)
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-
-    # relationships
-    vendor = relationship("Vendors", back_populates="products")
+    vendor = relationship("Users", back_populates="products", foreign_keys=[vendor_id])
     category = relationship("ProductCategory", back_populates="products")
+    gst = relationship("GstRate")
     order_items = relationship("OrderItem", back_populates="product")
-    vector = relationship("ProductVector", back_populates="product", uselist=False)
-
-# ---------- PRODUCT VECTORS ----------
-class ProductVector(Base):
-    __tablename__ = "product_vectors"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    embedding = Column(Text, nullable=False)
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), unique=True, index=True)
-
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
     
-    product = relationship("Products", back_populates="vector")
+
+# ---------- PRODUCT REVIEWS ----------
+class ProductReview(Base, BaseMixin):
+    __tablename__ = "product_reviews"
+    
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    rating = Column(Integer)
+    comment = Column(Text)
+
+
+# ---------- DELIVERY BOY LIST ----------
+class DeliveryBoyList(Base, BaseMixin):
+    __tablename__ = "delivery_boy_list"
+
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    full_name = Column(Text, nullable=False)
+    phone_number = Column(String(50), nullable=False)
+    vehicle_number = Column(String(50))
+    available_for_delivery = Column(Boolean, server_default=text("true"))
+
+    vendor = relationship("Users", back_populates="vendor_assignments", foreign_keys=[vendor_id])
+
+# ---------- DELIVERY BOY ↔ VENDOR ----------
+class DeliveryAssignment(Base, BaseMixin):
+    __tablename__ = "delivery_assignments"
+
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    delivery_boy_id = Column(UUID(as_uuid=True), ForeignKey("delivery_boy_list.id", ondelete="CASCADE"), index=True)
+    full_name = Column(Text, nullable=False)
+    phone_number = Column(String(50), nullable=False)
+    vehicle_number = Column(String(50))
+    current_latitude = Column(Float)
+    current_longitude = Column(Float)
+
+    vendor = relationship("Users", back_populates="vendor_assignments", foreign_keys=[vendor_id])
+    delivery_boy = relationship("DeliveryBoyList", back_populates="vendor")
 
 # ---------- ORDERS ----------
-class Orders(Base):
+class Orders(Base, BaseMixin):
     __tablename__ = "orders"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    customer_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
-    vendor_id = Column(UUID(as_uuid=True), ForeignKey("vendors.id", ondelete="CASCADE"), index=True)
-    status = Column(Enum(OrderStatus), server_default=OrderStatus.PENDING)
-    subtotal_amount = Column(Float, nullable=False)  # Before tax
-    discount_amount = Column(Float, server_default=0.0)
-    invoice_amount = Column(Float, nullable=False)  # subtotal - discount + tax
-    final_amount = Column(Float, nullable=False)  # Amount paid (after refunds, etc.)
-    
-    # GST Snapshot
-    gst_rate = Column(Float, nullable=False, server_default=0.0)  # Avg or applied GST %
-    cgst_amount = Column(Float, server_default=0.0)
-    sgst_amount = Column(Float, server_default=0.0)
-    igst_amount = Column(Float, server_default=0.0)
-    total_tax_amount = Column(Float, server_default=0.0)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    vendor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    delivery_agent_id = Column(UUID(as_uuid=True), ForeignKey("delivery_boy_list.id", ondelete="SET NULL"), index=True)
+    status_id = Column(UUID(as_uuid=True), ForeignKey("enum_order_status.id", ondelete="SET NULL"), index=True)
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    deleted_at = Column(DateTime, nullable=True)
-    
-    vendor = relationship("Vendors", back_populates="orders")
-    customer = relationship("Users", back_populates="orders")
+    subtotal_amount = Column(Float, nullable=False)
+    discount_amount = Column(Float, server_default=text("0.0"))
+    final_amount = Column(Float, nullable=False)
+    platform = Column(String(50))
+    gst_rate = Column(Float, nullable=False, server_default=text("0.0"))
+    cgst_amount = Column(Float, server_default=text("0.0"))
+    sgst_amount = Column(Float, server_default=text("0.0"))
+    total_tax_amount = Column(Float, server_default=text("0.0"))
+
+    customer = relationship("Users", back_populates="orders", foreign_keys=[customer_id])
+    vendor = relationship("Users", foreign_keys=[vendor_id])
+    delivery_agent = relationship("DeliveryBoyList", foreign_keys=[delivery_agent_id])
+    status = relationship("OrderStatuses")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="order", cascade="all, delete-orphan")
     tracking_events = relationship("OrderTracking", back_populates="order", cascade="all, delete-orphan")
     refund_requests = relationship("OrderRefundRequests", back_populates="order", cascade="all, delete-orphan")
 
 # ---------- ORDER ITEMS ----------
-class OrderItem(Base):
+class OrderItem(Base, BaseMixin):
     __tablename__ = "order_items"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    discount_amount = Column(Float, server_default=0.0)
-    discount_percentage = Column(Float, server_default=0.0)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True)
-    invoice_amount = Column(Float, nullable=False)
-    
-    # GST Snapshot
-    gst_rate = Column(Float, nullable=False, server_default=0.0)  # Avg or applied GST %
-    cgst_amount = Column(Float, server_default=0.0)
-    sgst_amount = Column(Float, server_default=0.0)
-    igst_amount = Column(Float, server_default=0.0)
-    total_tax_amount = Column(Float, server_default=0.0)
-    
     product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), index=True)
     quantity = Column(Integer, nullable=False)
     total_price = Column(Float, nullable=False)
+    discount_amount = Column(Float, server_default=text("0.0"))
+    gst_rate = Column(Float, nullable=False, server_default=text("0.0"))
+    total_tax_amount = Column(Float, server_default=text("0.0"))
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    
     order = relationship("Orders", back_populates="items")
     product = relationship("Products", back_populates="order_items")
 
 # ---------- PAYMENTS ----------
-class Payment(Base):
+class Payment(Base, BaseMixin):
     __tablename__ = "payments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True)
     amount = Column(Float, nullable=False)
     method = Column(String(50), nullable=False)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True)
     status = Column(String(50), server_default="pending")
-    transaction_id = Column(String(100), unique=True)
-
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
+    payment_order_id = Column(String(255), unique=True)
+    payment_id = Column(String(255), unique=True)
+    gateway_name = Column(String(255))
 
     order = relationship("Orders", back_populates="payments")
 
 # ---------- ORDER TRACKING ----------
-class OrderTracking(Base):
+class OrderTracking(Base, BaseMixin):
     __tablename__ = "order_tracking"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
-    location_id = Column(UUID(as_uuid=True), ForeignKey("location_details.id"), nullable=False, index=True)
-    changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    note = Column(Text)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), index=True)
-    status = Column(String(50), nullable=False)
+    status_id = Column(UUID(as_uuid=True), ForeignKey("enum_order_status.id", ondelete="SET NULL"))
+    note = Column(Text)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    eta_minutes = Column(Integer)
+    changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    delivery_agent_id = Column(UUID(as_uuid=True), ForeignKey("delivery_boy_list.id"), nullable=True)
 
-    created_at = Column(DateTime, server_default=datetime.utcnow,)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-    
     order = relationship("Orders", back_populates="tracking_events")
+    status = relationship("OrderStatuses")
+    delivery_agent = relationship("DeliveryBoyList", foreign_keys=[delivery_agent_id])
 
-class RefundStatus(enum.Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    REFUNDED = "refunded"
-
-class OrderRefundRequests(Base):
+# ---------- REFUND REQUESTS ----------
+class OrderRefundRequests(Base, BaseMixin):
     __tablename__ = "order_refund_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), index=True)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False, index=True)
-    processed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    reason = Column(Text, nullable=True)
-    refund_amount = Column(Float, nullable=True)
-    status = Column(Enum(RefundStatus), server_default=RefundStatus.PENDING, nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    processed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reason = Column(Text)
+    refund_amount = Column(Float)
+    status_id = Column(UUID(as_uuid=True), ForeignKey("enum_refund_status.id", ondelete="SET NULL"))
 
-    created_at = Column(DateTime, server_default=datetime.utcnow)
-    updated_at = Column(DateTime, server_default=datetime.utcnow, server_onupdate=datetime.utcnow)
-
-    # Relationships
     order = relationship("Orders", back_populates="refund_requests")
-    user = relationship("Users", foreign_keys=[user_id])
-    processor = relationship("Users", foreign_keys=[processed_by])
+    status = relationship("RefundStatuses")
     
-
+    
 # ---------- RLS POLICIES ----------
 def add_rls_policies(target, connection, **kw):
     policies = [
+
         # USERS
         """
         ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-        
+
         CREATE POLICY "Users can view their own profile"
         ON users FOR SELECT USING (id = auth.uid());
-        
-        CREATE POLICY "Users can modify their own profile"
+
+        CREATE POLICY "Users can update their own profile"
         ON users FOR UPDATE USING (id = auth.uid());
-        
+
         CREATE POLICY "Users can delete their own profile"
         ON users FOR DELETE USING (id = auth.uid());
         """,
-        # SHOP_TYPES
+
+        # USER_CONTACT_LOCATIONS
         """
-        ALTER TABLE shop_types ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Anyone can view shop types"
-        ON shop_types FOR SELECT
-        USING (true);
-        """
-        # VENDORS
-        """
-        ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Users can view their own profile"
-        ON vendors FOR SELECT USING (owner_id = auth.uid());
-        
-        CREATE POLICY "Users can modify their own profile"
-        ON vendors FOR UPDATE USING (owner_id = auth.uid());
-        
-        CREATE POLICY "Users can delete their own profile"
-        ON vendors FOR DELETE USING (owner_id = auth.uid());
+        ALTER TABLE user_contact_locations ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Users manage their own contact locations"
+        ON user_contact_locations FOR ALL
+        USING (user_id = auth.uid())
+        WITH CHECK (user_id = auth.uid());
         """,
-        # CONTACT_DETAILS
+
+        # PRODUCT_CATEGORIES
         """
-        ALTER TABLE contact_details ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Users can view and manage their contacts"
-        ON contact_details FOR ALL
-        USING (user_id = auth.uid() OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()))
-        WITH CHECK (user_id = auth.uid() OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()));
+        ALTER TABLE product_categories ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Anyone can view product categories"
+        ON product_categories FOR SELECT
+        USING (true);
+        """,
+
+        # GST_RATES
         """
-        # LOCATION_DETAILS
-        """
-        ALTER TABLE location_details ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Users can view and manage their locations "
-        ON location_details FOR ALL
-        USING (user_id = auth.uid() OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()))
-        WITH CHECK (user_id = auth.uid() OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()));
-        """
+        ALTER TABLE gst_rates ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Anyone can view GST rates"
+        ON gst_rates FOR SELECT
+        USING (true);
+        """,
+
         # PRODUCTS
         """
         ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 
         CREATE POLICY "Vendors manage their products"
-        ON products FOR ALL USING (vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()));
-        
+        ON products FOR ALL
+        USING (vendor_id = auth.uid())
+        WITH CHECK (vendor_id = auth.uid());
+
         CREATE POLICY "Anyone can view active products"
-        ON products FOR SELECT USING (active = true);
+        ON products FOR SELECT
+        USING (active = true);
         """,
-        # PRODUCT CATEGORIES
+
+        # DELIVERY_BOY_LIST
         """
-        ALTER TABLE product_categories ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Anyone can view categories"
-        ON product_categories FOR SELECT
-        USING (true);
+        ALTER TABLE delivery_boy_list ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Vendors manage their delivery boy list"
+        ON delivery_boy_list FOR ALL
+        USING (vendor_id = auth.uid())
+        WITH CHECK (vendor_id = auth.uid());
+        """,
+
+        # DELIVERY_ASSIGNMENTS
         """
-        # PRODUCT VECTORS
-        """
-        ALTER TABLE product_vectors ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Anyone can view vectors for active products"
-        ON product_vectors FOR SELECT
-        USING (product_id IN (SELECT id FROM products WHERE active = true));
-        
-        CREATE POLICY "Vendors manage their product vectors"
-        ON product_vectors FOR ALL
-        USING (product_id IN (SELECT id FROM products WHERE vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())))
-        WITH CHECK (product_id IN (SELECT id FROM products WHERE vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())));
-        """
+        ALTER TABLE delivery_assignments ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY "Vendors manage their delivery assignments"
+        ON delivery_assignments FOR ALL
+        USING (vendor_id = auth.uid())
+        WITH CHECK (vendor_id = auth.uid());
+
+        CREATE POLICY "Delivery boy can view assigned deliveries"
+        ON delivery_assignments FOR SELECT
+        USING (delivery_boy_id IN (
+            SELECT id FROM delivery_boy_list WHERE vendor_id = auth.uid()
+        ));
+        """,
+
         # ORDERS
         """
         ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Customers see their orders"
+
+        CREATE POLICY "Customers view their own orders"
         ON orders FOR SELECT
         USING (customer_id = auth.uid());
-        
+
+        CREATE POLICY "Vendors view orders for their shop"
+        ON orders FOR SELECT
+        USING (vendor_id = auth.uid());
+
+        CREATE POLICY "Delivery agents view their assigned orders"
+        ON orders FOR SELECT
+        USING (delivery_agent_id IN (
+            SELECT id FROM delivery_boy_list WHERE vendor_id = auth.uid()
+        ));
+
         CREATE POLICY "Customers can create orders"
         ON orders FOR INSERT
         WITH CHECK (customer_id = auth.uid());
-        
-        CREATE POLICY "Vendors see their shop orders"
-        ON orders FOR SELECT
-        USING (vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()));
-        
-        CREATE POLICY "Vendors Modify their shop orders"
+
+        CREATE POLICY "Vendors update their orders"
         ON orders FOR UPDATE
-        USING (vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid()));
-        """
-        # ORDER_ITEM
+        USING (vendor_id = auth.uid())
+        WITH CHECK (vendor_id = auth.uid());
+        """,
+
+        # ORDER_ITEMS
         """
         ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
-        CREATE POLICY "Order owners can view and modify items"
+        CREATE POLICY "Order owners manage their order items"
         ON order_items FOR ALL
-        USING (order_id IN (SELECT id FROM orders WHERE customer_id = auth.uid()
-        OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())));
-        """
+        USING (order_id IN (
+            SELECT id FROM orders WHERE customer_id = auth.uid()
+            OR vendor_id = auth.uid()
+        ));
+        """,
+
         # PAYMENTS
         """
         ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Order owners can view payments"
-        ON payments FOR SELECT
-        USING (order_id IN (SELECT id FROM orders WHERE customer_id = auth.uid()
-        OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())));
 
-        CREATE POLICY "Customers can create payments for their orders"
+        CREATE POLICY "Order owners view payments"
+        ON payments FOR SELECT
+        USING (order_id IN (
+            SELECT id FROM orders WHERE customer_id = auth.uid()
+            OR vendor_id = auth.uid()
+        ));
+
+        CREATE POLICY "Customers create payments for their orders"
         ON payments FOR INSERT
-        WITH CHECK (order_id IN (SELECT id FROM orders WHERE customer_id = auth.uid()));
-        
-        CREATE POLICY "Order owners can modify payments"
-        ON payments FOR UPDATE
-        USING (order_id IN (SELECT id FROM orders WHERE customer_id = auth.uid()
-        OR vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())));
-        """
+        WITH CHECK (order_id IN (
+            SELECT id FROM orders WHERE customer_id = auth.uid()
+        ));
+        """,
+
         # ORDER_TRACKING
         """
         ALTER TABLE order_tracking ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Customers see tracking for their orders"
+
+        CREATE POLICY "Customers view tracking for their orders"
         ON order_tracking FOR SELECT
-        USING (order_id IN (SELECT id FROM orders WHERE customer_id = auth.uid()));
+        USING (order_id IN (
+            SELECT id FROM orders WHERE customer_id = auth.uid()
+        ));
 
         CREATE POLICY "Vendors update tracking for their orders"
         ON order_tracking FOR ALL
-        USING (order_id IN (SELECT id FROM orders WHERE vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())))
-        WITH CHECK (order_id IN (SELECT id FROM orders WHERE vendor_id IN (SELECT id FROM vendors WHERE owner_id = auth.uid())));
-        """
+        USING (order_id IN (
+            SELECT id FROM orders WHERE vendor_id = auth.uid()
+        ))
+        WITH CHECK (order_id IN (
+            SELECT id FROM orders WHERE vendor_id = auth.uid()
+        ));
+
+        CREATE POLICY "Delivery boys update their assigned tracking"
+        ON order_tracking FOR UPDATE
+        USING (delivery_agent_id IN (
+            SELECT id FROM delivery_boy_list WHERE vendor_id = auth.uid()
+        ));
+        """,
+
         # ORDER_REFUND_REQUESTS
         """
         ALTER TABLE order_refund_requests ENABLE ROW LEVEL SECURITY;
 
         CREATE POLICY "Users can create refund requests"
-        ON order_refund_requests
-        FOR INSERT
+        ON order_refund_requests FOR INSERT
         WITH CHECK (user_id = auth.uid());
 
         CREATE POLICY "Users can view their refund requests"
-        ON order_refund_requests
-        FOR SELECT
+        ON order_refund_requests FOR SELECT
         USING (user_id = auth.uid());
 
-        CREATE POLICY "Vendors can view refund requests for their orders"
-        ON order_refund_requests
-        FOR SELECT
+        CREATE POLICY "Vendors view refund requests related to their orders"
+        ON order_refund_requests FOR SELECT
         USING (
-        EXISTS (
-            SELECT 1
-            FROM orders o
-            JOIN vendors v ON v.id = o.vendor_id
-            WHERE o.id = order_refund_requests.order_id
-            AND v.owner_id = auth.uid()
-        )
+            EXISTS (
+                SELECT 1 FROM orders o
+                WHERE o.id = order_refund_requests.order_id
+                AND o.vendor_id = auth.uid()
+            )
         );
 
-        CREATE POLICY "Vendors can update refund requests for their orders"
-        ON order_refund_requests
-        FOR UPDATE
+        CREATE POLICY "Vendors update refund requests for their orders"
+        ON order_refund_requests FOR UPDATE
         USING (
-        EXISTS (
-            SELECT 1
-            FROM orders o
-            JOIN vendors v ON v.id = o.vendor_id
-            WHERE o.id = order_refund_requests.order_id
-            AND v.owner_id = auth.uid()
-        )
+            EXISTS (
+                SELECT 1 FROM orders o
+                WHERE o.id = order_refund_requests.order_id
+                AND o.vendor_id = auth.uid()
+            )
         );
-        """
-        # CARTS
-        """
-        ALTER TABLE carts ENABLE ROW LEVEL SECURITY;
-
-        CREATE POLICY "Users can view and modify their own cart"
-        ON carts FOR ALL USING (user_id = auth.uid());
         """,
-        # CART_ITEMS
-        """
-        ALTER TABLE cart_items ENABLE ROW LEVEL SECURITY;
-
-        CREATE POLICY "Users can view and modify their cart items"
-        ON cart_items FOR ALL
-        USING (EXISTS (SELECT 1 FROM carts WHERE carts.id = cart_items.cart_id AND carts.user_id = auth.uid()));
-        """,
-        # GST_RATES
-        """
-        ALTER TABLE gst_rates ENABLE ROW LEVEL SECURITY;
-        
-        CREATE POLICY "Anyone can view GST Rates"
-        ON gst_rates FOR SELECT
-        USING (true);
-        """
     ]
+
     for sql in policies:
         connection.execute(DDL(sql))
 
