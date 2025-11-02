@@ -1,9 +1,8 @@
 from fastapi import FastAPI, Depends
 from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
-from routers import auth,vendor
+from routers import auth
 from supabase import Client
 from utils import get_supabase_client
-from middleware import SupabaseAuthMiddleware
 
 app = FastAPI()
 
@@ -22,5 +21,3 @@ def read_root(credentials: HTTPAuthorizationCredentials = Depends(security)):
         return {"error": str(e)}
 
 app.include_router(auth.router)
-
-app.include_router(vendor.router)
